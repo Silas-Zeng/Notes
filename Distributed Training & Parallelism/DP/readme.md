@@ -28,13 +28,6 @@ $$
 
 DP 是一种并行策略，而 PyTorch 中的 DataParallel 和 DistributedDataParallel（DDP）是两种具体实现。
 
-| | DataParallel | DDP |
-|---|---|---|
-| 进程 | 单进程、多线程 | 多进程 |
-| 梯度同步 | 归约到主卡 | All-Reduce |
-| 参数更新 | 主卡更新 | 各卡独立更新 |
-| 多机训练 | 不支持 | 支持 |
-
 DDP 的训练流程：
 
 1. 每张 GPU 保存完整的模型。

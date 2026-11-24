@@ -73,14 +73,37 @@ $$
 
 ### Gradient Accumulation（梯度累积）
 
-将一个较大的 Batch 拆分成多个 Microbatch，分别进行前向和反向传播，累积梯度后再统一更新参数。
+在大模型训练中，受限于 GPU 显存，通常无法一次性处理整个 Batch。因此，可以将其拆分成多个 Microbatch，分别进行前向传播和反向传播，在累积多个 Microbatch 的梯度后，再统一更新模型参数。
+
+Global Batch Size 的计算公式为：
 
 $$
 GBS=MBS\times DP\times GAS
 $$
 
-通过 DDP 的 `no_sync()`，可以在前几个 Microbatch 中暂时关闭梯度同步，只在最后一个 Microbatch 进行梯度归约，从而减少通信次数。
+其中：
 
+- **GBS（Global Batch Size）**：一次参数更新所处理的全局样本总数。
+- **MBS（Micro Batch Size）**：每个数据并行副本一次前向和反向传播处理的样本数量。
+- **DP（Data Parallel Size）**：数据并行副本数量。
+- **GAS（Gradient Accumulation Steps）**：一次参数更新前累积梯度的次数。
+
+例如，假设 DP=4、MBS=2、GAS=4，则：
+
+$$
+GBS=2\times4\times4=32
+$$
+
+每张 GPU 执行 4 次前向和反向传播，每次处理 2 个样本，最终 4 张 GPU 共处理 32 个样本，并执行一次参数更新。
+
+由于梯度累积期间模型参数保持不变，因此没有必要在每次 Backward 后都进行梯度同步。通过 DDP 的 `no_sync()`，可以在前 GAS-1 个 Microbatch 中只累积本地梯度，在最后一个 Microbatch 的 Backward 中执行 All-Reduce，实现全局梯度同步。
+
+在各 Microbatch 的有效样本数量相同的情况下，需要将每次计算的 Loss 除以 GAS，以保证累积梯度的数值尺度正确。
+
+梯度累积主要带来两个收益：
+
+- **降低显存占用**：每次只保存当前 Microbatch 的 Activation，而不需要同时保存整个 Batch 的 Activation。
+- **减少通信开销**：结合 `no_sync()`，将每次参数更新前的完整梯度同步由 GAS 轮减少至 1 轮。
 ### Gradient Bucket（梯度分桶）
 
 将多个参数的梯度放入同一个 Bucket，合并执行 All-Reduce，避免大量小规模通信产生的启动开销。
